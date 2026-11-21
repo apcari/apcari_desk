@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>corner</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box}
+html,body{margin:0}
+html{background:#fff}
+body{font-family:"Space Mono",ui-monospace,Menlo,Consolas,monospace;font-size:15px;line-height:1.4}
+.hidden{display:none!important}
+
+#bg{position:fixed;inset:0;z-index:-1;background:#fff;overflow:hidden}
+#bg img,#bg video{width:100%;height:100%;object-fit:cover;display:block}
+#board{position:relative;width:100%;overflow:hidden}
+
+/* objects: no chrome, they invert against whatever is behind them */
+.o{position:absolute;width:240px;max-width:86vw;font-size:20px;white-space:pre-wrap;overflow-wrap:anywhere}
+.o.text,.o.link,.o.file{mix-blend-mode:difference;color:#fff}
+.o a{color:inherit;text-underline-offset:4px}
+.o.image{width:300px}.o.video{width:380px}.o.file{width:auto;max-width:300px}
+.o.clock,.o.days{mix-blend-mode:difference;color:#fff;width:auto;max-width:86vw}
+.o.embed{width:480px}.o iframe{display:block;width:100%;height:230px;border:0}
+.big{display:block;font-size:44px;font-weight:700;line-height:1.05}
+#wnote{margin:0 0 8px;opacity:.7}
+.o img,.o video{display:block;width:100%;height:auto}
+.land{animation:land .4s cubic-bezier(.2,.8,.3,1)}
+@keyframes land{from{transform:var(--t) scale(1.12);opacity:.4}to{transform:var(--t) scale(1);opacity:1}}
+.preview{cursor:grab;touch-action:none;z-index:5;outline:1px dashed #808080;outline-offset:8px}
+.preview:active{cursor:grabbing}
+.preview *{pointer-events:none}
+
+/* interface: glyphs that invert, panels that don't */
+#dock{position:fixed;right:12px;bottom:12px;z-index:20;display:flex;flex-direction:column;align-items:center;mix-blend-mode:difference}
+#dock button{background:none;border:0;color:#fff;font:inherit;font-size:30px;line-height:1;padding:6px 10px;cursor:pointer}
+#add{transition:transform .25s}
+#add.open{transform:rotate(45deg)}
+.pn{position:fixed;right:12px;bottom:110px;z-index:20;width:min(340px,calc(100vw - 24px));background:#000;color:#fff;border:1px solid #fff;padding:12px;font-size:14px}
+.pn button,#bar button,.pn label.btn{font:inherit;color:#fff;background:transparent;border:1px solid #fff;padding:6px 10px;cursor:pointer;display:inline-block}
+.pn button:hover,#bar button:hover,.pn label.btn:hover,.pn button.on,#bar button.armed{background:#fff;color:#000}
+.pn input[type=text],.pn input[type=password],.pn input[type=date],.pn textarea{color-scheme:dark;width:100%;font:inherit;color:#fff;background:#000;border:1px solid #fff;padding:8px;margin:0 0 8px;border-radius:0}
+.pn textarea{height:92px;resize:vertical}
+.pn input[type=file]{position:absolute;opacity:0;width:1px;height:1px}
+.pn input[type=color]{width:36px;height:30px;padding:0;border:1px solid #fff;background:#000;cursor:pointer}
+.row{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}
+.row:last-child{margin-bottom:0}
+#picked{display:block;margin:8px 0;opacity:.7;overflow-wrap:anywhere}
+#msg{min-height:20px;margin-bottom:8px}
+#bar{position:fixed;left:50%;bottom:14px;transform:translateX(-50%);z-index:20;display:flex;gap:6px;flex-wrap:wrap;justify-content:center;background:#000;border:1px solid #fff;padding:8px;max-width:calc(100vw - 24px)}
+#note{position:fixed;left:12px;top:12px;z-index:30;max-width:min(420px,calc(100vw - 24px));background:#000;color:#fff;border:1px solid #fff;padding:8px 10px;font-size:13px}
+button:focus-visible,input:focus-visible,textarea:focus-visible,label.btn:focus-within{outline:2px solid #fff;outline-offset:2px}
+@media (prefers-reduced-motion:reduce){.land,#add{animation:none;transition:none}}
+</style>
+</head>
+<body>
+<div id="bg"></div>
+<div id="board"></div>
+
+<div id="note" class="hidden" role="status"></div>
+
+<div id="dock" class="hidden">
+  <button id="bgbtn" aria-label="background" title="background">◐</button>
+  <button id="add" aria-label="add object" title="add">+</button>
+</div>
+
+<div id="panel" class="pn hidden">
+  <div class="row" id="types">
+    <button data-type="text" class="on">○ text</button>
+    <button data-type="link">△ link</button>
+    <button data-type="image">□ image</button>
+    <button data-type="file">◇ file</button>
+    <button data-type="video">▷ video</button>
+    <button data-type="widget">◎ widget</button>
+  </div>
+  <div id="f-text"><textarea id="txt" placeholder="write something"></textarea></div>
+  <div id="f-link" class="hidden">
+    <input id="url" type="text" placeholder="paste a link">
+    <input id="ttl" type="text" placeholder="label (optional)">
+  </div>
+  <div id="f-pick" class="hidden">
+    <label class="btn">choose file<input id="pick" type="file"></label>
+    <span id="picked"></span>
+  </div>
+  <div id="f-widget" class="hidden">
+    <div class="row">
+      <button data-w="clock" class="on">clock</button>
+      <button data-w="days">days</button>
+      <button data-w="embed">embed</button>
+    </div>
+    <input id="wdate" type="date" class="hidden">
+    <textarea id="wurl" placeholder="paste a link or embed code" class="hidden"></textarea>
+    <input id="wlbl" type="text" placeholder="label (optional)">
+    <p id="wnote">a live clock showing your local time</p>
+  </div>
+  <div id="msg" role="alert"></div>
+  <div class="row"><button id="hold">hold</button><button id="close">close</button></div>
+</div>
+
+<div id="bgpanel" class="pn hidden">
+  <div class="row">
+    <label class="btn">image / gif / video<input id="bgfile" type="file" accept="image/*,video/*"></label>
+  </div>
+  <div class="row">
+    <input id="bgcolor" type="color" value="#ffffff" aria-label="background color">
+    <button id="bgreset">reset</button>
+  </div>
+</div>
+
+<div id="loginpanel" class="pn hidden">
+  <input id="em" type="text" placeholder="email" autocomplete="username">
+  <input id="pw" type="password" placeholder="password" autocomplete="current-password">
+  <div id="lmsg" role="alert" style="min-height:20px;margin-bottom:8px"></div>
+  <div class="row"><button id="go" class="main">log in</button></div>
+</div>
+
+<div id="bar" class="hidden">
+  <button id="rl" aria-label="rotate left">↺</button>
+  <button id="rr" aria-label="rotate right">↻</button>
+  <button id="dice">shuffle</button>
+  <button id="cancel">back</button>
+  <button id="glue">glue</button>
+</div>
+
+<script>
+(()=>{
+/* fill these two in (Supabase: Project Settings > API) */
+const SB_URL="https://geporntuqaxifbcaadjq.supabase.co",SB_KEY="sb_publishable_6K9eDWZW_PlF-3ZQqnjHcA_DPLTan_9";
+
+const $=id=>document.getElementById(id);
+const board=$("board"),bgEl=$("bg"),panel=$("panel"),bgpanel=$("bgpanel"),loginp=$("loginpanel"),bar=$("bar"),msg=$("msg"),glue=$("glue"),add=$("add"),dock=$("dock");
+let type="text",wk="clock",picked=null,draft=null,el=null,armT=null,busy=false,after=null,sess=null;
+const toast=t=>{$("note").textContent=t;$("note").classList.remove("hidden")};
+const size=n=>n<1048576?Math.max(1,Math.round(n/1024))+" KB":(n/1048576).toFixed(1)+" MB";
+const pub=p=>SB_URL+"/storage/v1/object/public/files/"+p;
+
+/* server */
+const H=(tok,x)=>Object.assign({apikey:SB_KEY,Authorization:"Bearer "+(tok||SB_KEY)},x||{});
+async function api(path,opt){
+  const r=await fetch(SB_URL+path,opt);
+  if(!r.ok){let m="";try{const j=await r.json();m=j.message||j.msg||j.error_description||""}catch(e){}throw new Error(r.status+" "+m)}
+  return r;
+}
+try{sess=JSON.parse(localStorage.getItem("corner-session")||"null")}catch(e){}
+const keep=s=>{sess=s;try{if(s)localStorage.setItem("corner-session",JSON.stringify(s));else localStorage.removeItem("corner-session")}catch(e){}};
+async function tokenReq(body,grant){
+  const r=await api("/auth/v1/token?grant_type="+grant,{method:"POST",headers:H(null,{"Content-Type":"application/json"}),body:JSON.stringify(body)});
+  const j=await r.json();keep({a:j.access_token,r:j.refresh_token,e:Date.now()+(j.expires_in||3600)*1000});
+}
+async function token(){
+  if(sess&&Date.now()<sess.e-30000)return sess.a;
+  if(sess&&sess.r){try{await tokenReq({refresh_token:sess.r},"refresh_token");return sess.a}catch(e){keep(null)}}
+  return null;
+}
+async function upload(file,prefix){
+  const ext=((file.name.match(/\.([A-Za-z0-9]{1,8})$/)||[])[1]||"bin").toLowerCase();
+  const path=prefix+Date.now()+"-"+Math.random().toString(36).slice(2,8)+"."+ext;
+  await api("/storage/v1/object/files/"+path,{method:"POST",headers:H(await token(),{"Content-Type":file.type||"application/octet-stream","x-upsert":"false"}),body:file});
+  return path;
+}
+async function saveBg(kind,val){
+  await api("/rest/v1/site",{method:"POST",headers:H(await token(),{"Content-Type":"application/json",Prefer:"resolution=merge-duplicates,return=minimal"}),body:JSON.stringify({id:1,bg_kind:kind,bg_value:val})});
+}
+
+/* objects */
+const clk=()=>new Date().toLocaleTimeString([],{hour:"2-digit",minute:"2-digit",second:"2-digit",hour12:false});
+setInterval(()=>document.querySelectorAll("[data-clock]").forEach(s=>{s.textContent=clk()}),1000);
+function embedUrl(u){
+  let m=u.match(/(?:youtube\.com\/watch\?(?:.*&)?v=|youtu\.be\/)([\w-]{11})/);
+  if(m)return "https://www.youtube.com/embed/"+m[1];
+  m=u.match(/^https?:\/\/open\.spotify\.com\/(track|album|playlist|episode|show|artist)\/(\w+)/);
+  if(m)return "https://open.spotify.com/embed/"+m[1]+"/"+m[2];
+  return u;
+}
+const IFR=/^<iframe\b[^>]*?\ssrc\s*=\s*["']([^"']+)["'][^>]*>\s*<\/iframe>\s*$/i;
+const wrap=h=>'<!doctype html><meta charset="utf-8"><style>html,body{margin:0;background:transparent}body{display:flow-root}iframe{max-width:100%;vertical-align:top}</style>'+h+'<script>new ResizeObserver(function(){parent.postMessage({corner:1,h:Math.ceil(document.body.getBoundingClientRect().height)},"*")}).observe(document.body)<\/script>';
+addEventListener("message",ev=>{
+  if(!ev.data||!ev.data.corner)return;
+  document.querySelectorAll(".o.embed iframe").forEach(f=>{
+    if(f.contentWindow!==ev.source)return;
+    const h=Math.min(2000,Math.max(60,+ev.data.h||0));
+    if(Math.abs(f.offsetHeight-h)>2){f.style.height=h+"px";fit()}
+  });
+});
+function build(it){
+  const e=document.createElement("div");e.className="o "+it.t+(it.w?" "+it.w:"");e._it=it;
+  const src=()=>it.b?URL.createObjectURL(it.b):pub(it.path);
+  if(it.t==="text"){e.textContent=it.v}
+  else if(it.t==="link"){
+    const a=document.createElement("a");a.href=/^https?:\/\//i.test(it.v)?it.v:"#";a.target="_blank";a.rel="noopener noreferrer";
+    a.textContent=it.n||it.v.replace(/^https?:\/\//,"");e.append(a);
+  }else if(it.t==="widget"){
+    if(it.w==="clock"){
+      const s=document.createElement("span");s.className="big";s.dataset.clock="1";s.textContent=clk();
+      e.append(s);if(it.n)e.append(document.createTextNode(it.n));
+    }else if(it.w==="days"){
+      const d=Math.round((new Date(it.v+"T00:00:00")-new Date().setHours(0,0,0,0))/864e5),a=Math.abs(d);
+      const s=document.createElement("span");s.className="big";s.textContent=d===0?"today":a;
+      const l=d===0?"":(a===1?"day ":"days ")+(d>0?"until ":"since ");
+      e.append(s,document.createTextNode(l+(it.n||it.v)));
+    }else{
+      const f=document.createElement("iframe");f.loading="lazy";
+      f.allow="autoplay; encrypted-media; fullscreen; picture-in-picture";
+      if(it.k==="html"){
+        f.setAttribute("sandbox","allow-scripts allow-popups allow-popups-to-escape-sandbox allow-presentation allow-forms");
+        f.srcdoc=wrap(it.v);
+      }else{
+        f.setAttribute("sandbox","allow-scripts allow-same-origin allow-popups allow-presentation allow-forms");
+        f.src=embedUrl(it.v);if(it.hh)f.style.height=it.hh+"px";
+      }
+      e.append(f);
+    }
+  }else if(it.t==="image"){
+    const i=new Image();i.alt="";i.onload=fit;i.src=src();e.append(i);
+  }else if(it.t==="video"){
+    const u=src(),v=document.createElement("video");v.controls=true;v.playsInline=true;v.preload="metadata";
+    v.onloadedmetadata=fit;
+    v.onerror=()=>{
+      const a=document.createElement("a");a.href=u;
+      a.textContent="this browser cannot play "+(it.name||"this video")+" - open it instead";
+      v.replaceWith(a);fit();
+    };
+    v.src=u+(it.b?"#t=0.001":"");e.append(v);
+  }else{
+    const a=document.createElement("a");
+    a.href=it.b?URL.createObjectURL(it.b):pub(it.path)+"?download="+encodeURIComponent(it.name||"file");
+    a.download=it.name||"file";
+    a.textContent="◇ "+(it.name||"file")+"  "+size(it.b?it.b.size:(it.size||0));e.append(a);
+  }
+  return e;
+}
+function place(e,it){
+  e.style.left=it.x*Math.max(0,board.clientWidth-e.offsetWidth)+"px";
+  e.style.top=it.y+"px";
+  e.style.setProperty("--t","rotate("+it.r+"deg)");
+  e.style.transform="var(--t)";
+}
+function fit(){
+  let m=0;
+  board.querySelectorAll(".o").forEach(e=>{m=Math.max(m,e.offsetTop+e.offsetHeight)});
+  board.style.minHeight=Math.max(innerHeight,m+420)+"px";
+}
+addEventListener("resize",()=>{board.querySelectorAll(".o").forEach(e=>place(e,e._it));fit()});
+
+/* background */
+function setBg(b){
+  bgEl.replaceChildren();bgEl.style.background="#fff";
+  if(!b||!b.bg_kind)return;
+  if(b.bg_kind==="color"){bgEl.style.background=b.bg_value;return}
+  const u=pub(b.bg_value);
+  if(b.bg_kind==="video"){
+    const v=document.createElement("video");v.src=u;v.loop=true;v.muted=true;v.autoplay=true;v.playsInline=true;
+    bgEl.append(v);v.play().catch(()=>{});
+  }else{const i=new Image();i.alt="";i.src=u;bgEl.append(i)}
+}
+$("bgfile").onchange=async ev=>{
+  const f=ev.target.files[0];ev.target.value="";if(!f)return;
+  const kind=f.type.startsWith("video/")?"video":f.type.startsWith("image/")?"image":null;
+  if(!kind){toast("choose an image, gif or video");return}
+  try{toast("uploading...");const path=await upload(f,"bg/");await saveBg(kind,path);setBg({bg_kind:kind,bg_value:path});$("note").classList.add("hidden")}
+  catch(e){toast("could not change the background: "+e.message)}
+};
+$("bgcolor").oninput=ev=>setBg({bg_kind:"color",bg_value:ev.target.value});
+$("bgcolor").onchange=async ev=>{try{await saveBg("color",ev.target.value)}catch(e){toast("could not save the color: "+e.message)}};
+$("bgreset").onclick=async()=>{
+  setBg(null);$("bgcolor").value="#ffffff";
+  try{await saveBg("color","#ffffff")}catch(e){toast("could not reset the background: "+e.message)}
+};
+
+/* load what is already on the page */
+async function load(){
+  try{
+    const [ri,rs]=await Promise.all([
+      api("/rest/v1/items?select=*&order=id.asc&limit=1000",{headers:H()}),
+      api("/rest/v1/site?select=*&id=eq.1",{headers:H()})
+    ]);
+    (await ri.json()).forEach(it=>{const e=build(it);board.append(e);place(e,it)});
+    const s=(await rs.json())[0];if(s)setBg(s);
+    fit();
+  }catch(e){toast("could not load the page: "+e.message)}
+}
+fit();
+if(/YOUR-/.test(SB_URL+SB_KEY))toast("open index.html in a text editor and fill in SB_URL and SB_KEY at the top of the script");
+else load();
+
+/* panels and login */
+function openPanel(){panel.classList.remove("hidden");bgpanel.classList.add("hidden");loginp.classList.add("hidden");add.classList.add("open")}
+function closePanel(){panel.classList.add("hidden");loginp.classList.add("hidden");add.classList.remove("open");msg.textContent="";$("lmsg").textContent=""}
+async function gate(next){
+  if(await token()){next();return}
+  after=next;panel.classList.add("hidden");bgpanel.classList.add("hidden");
+  loginp.classList.remove("hidden");add.classList.add("open");$("em").focus();
+}
+add.onclick=()=>{
+  if(!panel.classList.contains("hidden")||!loginp.classList.contains("hidden")){closePanel();return}
+  bgpanel.classList.add("hidden");gate(openPanel);
+};
+$("close").onclick=closePanel;
+$("bgbtn").onclick=()=>{
+  if(!bgpanel.classList.contains("hidden")){bgpanel.classList.add("hidden");return}
+  closePanel();gate(()=>bgpanel.classList.remove("hidden"));
+};
+$("go").onclick=async()=>{
+  $("lmsg").textContent="";
+  try{
+    await tokenReq({email:$("em").value.trim(),password:$("pw").value},"password");
+    $("pw").value="";loginp.classList.add("hidden");add.classList.remove("open");
+    const f=after;after=null;if(f)f();
+  }catch(e){$("lmsg").textContent=/^(400|401|422)/.test(e.message)?"wrong email or password":"cannot reach the server"}
+};
+$("pw").onkeydown=ev=>{if(ev.key==="Enter")$("go").click()};
+
+const accepts={image:"image/*",file:"",video:"video/*"};
+document.querySelectorAll("[data-type]").forEach(b=>b.onclick=()=>{
+  type=b.dataset.type;
+  document.querySelectorAll("[data-type]").forEach(x=>x.classList.toggle("on",x===b));
+  $("f-text").classList.toggle("hidden",type!=="text");
+  $("f-link").classList.toggle("hidden",type!=="link");
+  $("f-pick").classList.toggle("hidden",!(type in accepts));
+  $("f-widget").classList.toggle("hidden",type!=="widget");
+  if(type in accepts){$("pick").accept=accepts[type];$("pick").value="";picked=null;$("picked").textContent=""}
+  msg.textContent="";
+});
+$("pick").onchange=ev=>{
+  picked=ev.target.files[0]||null;
+  $("picked").textContent=picked?picked.name+"  "+size(picked.size):"";
+};
+document.querySelectorAll("[data-w]").forEach(b=>b.onclick=()=>{
+  wk=b.dataset.w;
+  document.querySelectorAll("[data-w]").forEach(x=>x.classList.toggle("on",x===b));
+  $("wdate").classList.toggle("hidden",wk!=="days");
+  $("wurl").classList.toggle("hidden",wk!=="embed");
+  $("wlbl").classList.toggle("hidden",wk==="embed");
+  $("wnote").textContent=wk==="clock"?"a live clock showing your local time":wk==="days"?"counts the days until or since a date":"paste a link, or the embed code (html) a site gives you. some sites refuse to be embedded";
+  msg.textContent="";
+});
+
+/* hold: the object is in your hand until you glue it */
+$("hold").onclick=()=>{
+  msg.textContent="";
+  const it={t:type,r:Math.round(Math.random()*8-4),x:.5,y:Math.max(0,scrollY+innerHeight/2-120)};
+  if(type==="text"){
+    const v=$("txt").value.trim();if(!v){msg.textContent="write something first";return}
+    it.v=v;
+  }else if(type==="link"){
+    let u=$("url").value.trim();if(!u){msg.textContent="paste a link first";return}
+    if(!/^https?:\/\//i.test(u))u="https://"+u;
+    try{new URL(u)}catch(e){msg.textContent="that link looks wrong";return}
+    it.v=u;it.n=$("ttl").value.trim();
+  }else if(type==="widget"){
+    it.w=wk;
+    if(wk==="days"){
+      const v=$("wdate").value;if(!v){msg.textContent="pick a date first";return}
+      it.v=v;it.n=$("wlbl").value.trim();
+    }else if(wk==="embed"){
+      let u=$("wurl").value.trim();if(!u){msg.textContent="paste a link or embed code first";return}
+      if(u[0]==="<"){
+        const m=u.match(IFR);
+        if(m){
+          const hm=u.match(/\sheight\s*=\s*["']?(\d+)/i);
+          if(hm)it.hh=Math.min(1500,+hm[1]);
+          u=m[1].replace(/&amp;/g,"&");if(u.slice(0,2)==="//")u="https:"+u;
+        }else{it.k="html";it.v=u}
+      }
+      if(it.k!=="html"){
+        if(!/^https?:\/\//i.test(u))u="https://"+u;
+        try{new URL(u)}catch(e){msg.textContent="that link looks wrong";return}
+        it.v=u;
+      }
+    }else it.n=$("wlbl").value.trim();
+  }else{
+    if(!picked){msg.textContent="choose a file first";return}
+    if(type==="image"&&!picked.type.startsWith("image/")){msg.textContent="that is not an image";return}
+    if(type==="video"&&!picked.type.startsWith("video/")){msg.textContent="that is not a video";return}
+    if(picked.size>50*1024*1024){msg.textContent="the free plan accepts files up to 50 MB";return}
+    it.b=picked;it.name=picked.name;
+  }
+  draft=it;el=build(it);el.classList.add("preview");board.append(el);place(el,it);
+  closePanel();dock.classList.add("hidden");bar.classList.remove("hidden");fit();drag(el);
+};
+function drag(e){
+  e.onpointerdown=ev=>{
+    ev.preventDefault();e.setPointerCapture(ev.pointerId);
+    const sx=ev.clientX,sy=ev.clientY,span=Math.max(1,board.clientWidth-e.offsetWidth),px=draft.x*span,py=draft.y;
+    e.onpointermove=m=>{
+      draft.x=Math.min(1,Math.max(0,(px+m.clientX-sx)/span));
+      draft.y=Math.max(0,py+m.clientY-sy);place(e,draft);fit();
+    };
+    e.onpointerup=()=>{e.onpointermove=e.onpointerup=null};
+  };
+  e.addEventListener("wheel",w=>{w.preventDefault();rot(w.deltaY>0?3:-3)},{passive:false});
+}
+function rot(d){draft.r=Math.max(-40,Math.min(40,draft.r+d));place(el,draft)}
+$("rl").onclick=()=>rot(-6);
+$("rr").onclick=()=>rot(6);
+$("dice").onclick=()=>{
+  draft.x=Math.random();
+  draft.y=Math.random()*Math.max(200,board.offsetHeight-420);
+  draft.r=Math.round(Math.random()*30-15);
+  place(el,draft);fit();
+  scrollTo({top:Math.max(0,draft.y-innerHeight/3),behavior:"smooth"});
+};
+function disarm(){clearTimeout(armT);glue.classList.remove("armed");glue.textContent="glue"}
+$("cancel").onclick=()=>{
+  disarm();el.remove();draft=el=null;
+  bar.classList.add("hidden");dock.classList.remove("hidden");openPanel();fit();
+};
+glue.onclick=async()=>{
+  if(busy)return;
+  if(!glue.classList.contains("armed")){
+    glue.classList.add("armed");glue.textContent="sure? no undo";
+    armT=setTimeout(disarm,3000);return;
+  }
+  disarm();busy=true;
+  let saved;
+  try{
+    if(!(await token()))throw new Error("login");
+    const row={t:draft.t,v:draft.v??null,n:draft.n??null,w:draft.w??null,k:draft.k??null,hh:draft.hh??null,x:draft.x,y:Math.round(draft.y),r:draft.r};
+    if(draft.b){toast("uploading...");row.path=await upload(draft.b,"");row.name=draft.name;row.mime=draft.b.type||null;row.size=draft.b.size}
+    const res=await api("/rest/v1/items",{method:"POST",headers:H(await token(),{"Content-Type":"application/json",Prefer:"return=representation"}),body:JSON.stringify(row)});
+    saved=(await res.json())[0];
+  }catch(e){
+    busy=false;
+    toast(e.message==="login"?"you are logged out. press back, then log in again with #lock removed":"could not save: "+e.message);
+    return;
+  }
+  busy=false;$("note").classList.add("hidden");
+  el.remove();
+  const fin=build(saved);fin.classList.add("land");board.append(fin);place(fin,saved);
+  fin.addEventListener("animationend",()=>fin.classList.remove("land"));
+  draft=el=picked=null;
+  $("txt").value=$("url").value=$("ttl").value=$("wurl").value=$("wlbl").value=$("wdate").value="";$("pick").value="";$("picked").textContent="";
+  bar.classList.add("hidden");dock.classList.remove("hidden");fit();
+};
+
+/* owner mode: controls stay hidden unless you open the page with #edit (#lock hides them and logs out) */
+function ownerCheck(){
+  let owner=false;
+  try{
+    if(location.hash==="#edit")localStorage.setItem("corner-owner","1");
+    if(location.hash==="#lock"){localStorage.removeItem("corner-owner");keep(null)}
+    owner=localStorage.getItem("corner-owner")==="1";
+  }catch(e){owner=location.hash==="#edit"}
+  if(draft)return;
+  dock.classList.toggle("hidden",!owner);
+  if(!owner){closePanel();bgpanel.classList.add("hidden")}
+}
+ownerCheck();addEventListener("hashchange",ownerCheck);
+})();
+</script>
+</body>
+</html>
